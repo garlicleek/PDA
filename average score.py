@@ -1,6 +1,7 @@
 import wfdb
 import matplotlib.pyplot as plt
 import numpy as np
+import json
 from src.pdd_parser import *
 from src.utils import *
 from src.lz78_parser import *
@@ -11,7 +12,7 @@ FILE_NAME = ["100", "101", "102", "103", "104", "105", "106", "107", "108", "109
              "124", "200", "201", "202", "203", "205", "207", "208", "209", "210", "212",
              "213", "214", "217", "217", "219", "220", "221", "222", "223", "228", "230",
              "231", "232", "233", "234"]
-max_D = 10
+max_D = 5
 number_of_bins = 100
 
 MODEL_PATH = "E:\\Jupyter Notebook\\model\\PDA\\"
@@ -67,7 +68,7 @@ def extract_non_N_beats(window_size=50):
 
 	non_N_beat_segments_0, non_N_beat_segments_1 = [], []
 	non_N_annotations = []
-	for name in ["100", "101", "102", "103", "104", "105", "106", "107", "108", "109", "111"]:
+	for name in FILE_NAME:
 		# 读取信号和标注
 		record = wfdb.rdrecord(DATA_PATH + name)
 		annotation = wfdb.rdann(DATA_PATH + name, 'atr')
@@ -100,6 +101,7 @@ def extract_non_N_beats(window_size=50):
 # 使用示例
 if __name__ == "__main__":
 	# LZ78 pretrain
+	print("lz78 pretraining...")
 	name = '100'
 	record = wfdb.rdrecord(DATA_PATH + name)
 	annotation = wfdb.rdann(DATA_PATH + name, 'atr')
@@ -116,22 +118,42 @@ if __name__ == "__main__":
 	lz78_encoder_V5 = LZ78()
 	lz78_encoder_V5.train(signal_1)
 
-	N_segments_0, N_segments_1 = extract_N_beats()
-	non_N_segments_0, non_N_segments_1, non_N_labels = extract_non_N_beats()
+	print("data preparing...")
+	with open("data.json", "r") as file:
+		data_dict = json.load(file)
+		N_segments_0 = data_dict['N_segments_0']
+		N_segments_1 = data_dict['N_segments_1']
+		non_N_segments_0 = data_dict['non_N_segments_0']
+		non_N_segments_1 = data_dict['non_N_segments_1']
+		non_N_labels = data_dict['non_N_labels']
 
+	non_N_0 = dict()
+	non_N_1 = dict()
+	for label in non_N_labels:
+		if label not in non_N_0:
+			non_N_0[label] = []
+			non_N_1[label] = []
+
+	# N_segments_0, N_segments_1 = extract_N_beats()
+	# non_N_segments_0, non_N_segments_1, non_N_labels = extract_non_N_beats()
+	# data_dict = {
+	# 	"N_segments_0": N_segments_0,
+	# 	"N_segments_1": N_segments_1,
+	# 	"non_N_segments_0": non_N_segments_0,
+	# 	"non_N_segments_1": non_N_segments_1,
+	# 	"non_N_labels": non_N_labels
+	# }
+	# with open("data.json", "w") as file:
+	# 	json.dump(data_dict, file)
+
+	print("loading...")
 	encoder_ML = PDD(max_D)
 	encoder_ML.load(MODEL_PATH + MODEL_NAME_ML)
 	encoder_V5 = PDD(max_D)
 	encoder_V5.load(MODEL_PATH + MODEL_NAME_V5)
 
-	non_N_0 = dict()
-	non_N_1 = dict()
-
-	for segment_0, segment_1, label in zip(N_segments_0, N_segments_1, non_N_labels):
-		if label not in non_N_0:
-			non_N_0[label] = []
-			non_N_1[label] = []
-
+	print("calculate non N average score...")
+	for segment_0, segment_1, label in zip(non_N_segments_0, non_N_segments_1, non_N_labels):
 		c_subseq_pd = encoder_ML.parse(segment_0)
 		c_subseq_lz78 = lz78_encoder_ML.encode(segment_0)
 		score_0 = encoder_ML.get_total_bits(c_subseq_pd) - lz78_encoder_ML.get_total_bits(c_subseq_lz78)
@@ -142,9 +164,11 @@ if __name__ == "__main__":
 		score_1 = encoder_ML.get_total_bits(c_subseq_pd) - lz78_encoder_ML.get_total_bits(c_subseq_lz78)
 		non_N_1[label].append(score_1)
 
+	print(non_N_0)
 	non_N_0_means = {key: sum(values) / len(values) for key, values in non_N_0.items()}
 	non_N_1_means = {key: sum(values) / len(values) for key, values in non_N_1.items()}
 
+	print("calculate N average score...")
 	normal_num = len(N_segments_0)
 	normal_score_0 = []
 	normal_score_1 = []
